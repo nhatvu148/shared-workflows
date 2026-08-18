@@ -14,6 +14,11 @@ they are job definitions with inputs, no secrets, no infrastructure detail.
 |---|---|
 | `rust-ci.yml` | `cargo fmt --check`, `clippy`, `test` or `check`, with `Swatinem/rust-cache` |
 | `node-ci.yml` | `setup-node`, install, type-check, tests, optional Bun |
+| `review.yml` | Kaniscope AI review on a PR — wraps `kaniscope-action` |
+| `docker-publish.yml` | Build and push a container to GHCR, with version pruning |
+
+`review.yml` and `docker-publish.yml` default `runner` to **ubuntu-latest**, not
+self-hosted: Docker container actions and buildx only run on Linux.
 
 ## Use
 

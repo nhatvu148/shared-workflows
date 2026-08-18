@@ -1,0 +1,76 @@
+name: Reusable — Kaniscope AI review
+
+# Wraps nhatvu148/kaniscope-action so a consumer writes four lines instead of
+# fifteen. See rust-ci.yml for how the `runner` input works.
+#
+# Caller:
+#
+#   jobs:
+#     review:
+#       uses: nhatvu148/shared-workflows/.github/workflows/review.yml@v1
+#       secrets:
+#         openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}
+#
+# NOTE: kaniscope-action is a Docker container action, so it only runs on Linux.
+# The `runner` default here is ubuntu-latest for that reason, NOT the self-hosted
+# default the build workflows use — a macOS runner cannot run it at all.
+#
+# Fork PRs do not receive secrets, so on a public repo this job is a no-op for
+# external contributors. That is GitHub's behaviour, not a bug here.
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: 'runs-on value, as JSON. Must be a Linux runner — Docker actions cannot run elsewhere.'
+        type: string
+        default: '"ubuntu-latest"'
+      action-ref:
+        description: 'kaniscope-action ref to pin. Floating major tag by default.'
+        type: string
+        default: 'v1'
+      model:
+        description: 'OpenRouter model. A cheaper model keeps cost to pennies per PR.'
+        type: string
+        default: 'moonshotai/kimi-k2-0905'
+      dry-run:
+        description: 'Generate the review and print it to the log without posting.'
+        type: boolean
+        default: false
+      comment-marker:
+        type: string
+        default: '🦀 Kaniscope'
+      max-diff-chars:
+        description: 'Truncate larger diffs before sending to the model (cost cap). Empty = engine default.'
+        type: string
+        default: ''
+      max-tokens:
+        description: 'Max output tokens per review call (cost cap). Empty = engine default.'
+        type: string
+        default: ''
+    secrets:
+      openrouter-api-key:
+        description: 'OpenRouter key that funds the review.'
+        required: true
+
+jobs:
+  review:
+    runs-on: ${{ fromJSON(inputs.runner) }}
+    permissions:
+      contents: read
+      # Needed to post the review. A called workflow cannot exceed the caller's
+      # token permissions, so a caller with a read-only default token must grant
+      # this itself.
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Kaniscope review
+        uses: nhatvu148/kaniscope-action@v1
+        with:
+          openrouter-api-key: ${{ secrets.openrouter-api-key }}
+          model: ${{ inputs.model }}
+          dry-run: ${{ inputs.dry-run }}
+          comment-marker: ${{ inputs.comment-marker }}
+          max-diff-chars: ${{ inputs.max-diff-chars }}
+          max-tokens: ${{ inputs.max-tokens }}

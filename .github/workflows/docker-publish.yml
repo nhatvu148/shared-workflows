@@ -1,0 +1,100 @@
+name: Reusable — build and push a container to GHCR
+
+# Generalised from the graphini publish job. Serves any repo here that ships a
+# container, not just GitHub Actions.
+#
+# Uses the built-in GITHUB_TOKEN — no PAT needed — so the caller must grant
+# `packages: write`, which a called workflow cannot grant itself.
+#
+#   jobs:
+#     publish:
+#       uses: nhatvu148/shared-workflows/.github/workflows/docker-publish.yml@v1
+#       permissions:
+#         contents: read
+#         packages: write
+#       with:
+#         package-name: kaniscope-action
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: 'runs-on value, as JSON. Building on a native runner avoids QEMU.'
+        type: string
+        default: '"ubuntu-latest"'
+      context:
+        type: string
+        default: '.'
+      dockerfile:
+        type: string
+        default: './Dockerfile'
+      platforms:
+        description: 'Keep to the runner architecture unless you genuinely need multi-arch — QEMU emulation is slow.'
+        type: string
+        default: 'linux/amd64'
+      image-name:
+        description: 'Image path. ghcr.io requires lowercase.'
+        type: string
+        default: ''
+      extra-tags:
+        description: 'Additional docker/metadata-action tag rules, one per line.'
+        type: string
+        default: ''
+      package-name:
+        description: 'Package to prune. Empty disables pruning.'
+        type: string
+        default: ''
+      min-versions-to-keep:
+        description: >-
+          GHCR storage shares the 2 GB package quota with Actions artifacts, so
+          old versions are pruned. The newest N are kept, which always includes
+          the floating tags.
+        type: number
+        default: 10
+
+jobs:
+  publish:
+    runs-on: ${{ fromJSON(inputs.runner) }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ inputs.image-name != '' && inputs.image-name || github.repository }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern=v{{version}}
+            type=semver,pattern=v{{major}}
+            type=sha,format=long
+            ${{ inputs.extra-tags }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.dockerfile }}
+          platforms: ${{ inputs.platforms }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Prune old image versions
+        if: inputs.package-name != ''
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: ${{ inputs.package-name }}
+          package-type: container
+          min-versions-to-keep: ${{ inputs.min-versions-to-keep }}
