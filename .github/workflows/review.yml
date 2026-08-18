@@ -65,7 +65,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Fork PRs do not receive secrets, so the key would be empty and the
+      # action would fail — handing an external contributor a red check about
+      # something that is not their change. Skip rather than fail.
       - name: Kaniscope review
+        if: github.event.pull_request.head.repo.full_name == github.repository
         uses: nhatvu148/kaniscope-action@v1
         with:
           openrouter-api-key: ${{ secrets.openrouter-api-key }}

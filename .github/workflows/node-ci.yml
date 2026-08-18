@@ -7,9 +7,15 @@ on:
   workflow_call:
     inputs:
       runner:
-        description: 'runs-on value, as JSON — either a string or an array'
+        description: >-
+          runs-on value, as JSON — either a string or an array. Defaults to a
+          GitHub-hosted runner because that is the only target every consumer
+          has. A self-hosted runner is registered to specific repos, so a
+          self-hosted DEFAULT means any repo without one queues forever: GitHub
+          does not fall back to hosted when nothing matches the labels, it just
+          waits. Repos with a runner opt in explicitly.
         type: string
-        default: '["self-hosted","macOS","ARM64"]'
+        default: '"ubuntu-latest"'
       working-directory:
         type: string
         default: '.'
