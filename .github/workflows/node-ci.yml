@@ -1,42 +1,44 @@
-name: Reusable — Node CI
+name: Reusable — Node / Bun CI
 
 # Called by other repos via `uses:`. Does not run on its own.
-# See rust-ci.yml for how the `runner` default works.
+# See rust-ci.yml for how the `runner` input works and why `commands` is a list.
 
 on:
   workflow_call:
     inputs:
       runner:
         description: >-
-          runs-on value, as JSON — either a string or an array. Defaults to a
-          GitHub-hosted runner because that is the only target every consumer
-          has. A self-hosted runner is registered to specific repos, so a
-          self-hosted DEFAULT means any repo without one queues forever: GitHub
-          does not fall back to hosted when nothing matches the labels, it just
-          waits. Repos with a runner opt in explicitly.
+          runs-on value, as JSON. Defaults to a GitHub-hosted runner: a
+          self-hosted one is registered to specific repos, and a job whose
+          labels match nothing queues forever rather than falling back.
         type: string
         default: '"ubuntu-latest"'
       working-directory:
         type: string
         default: '.'
       node-version:
+        description: 'Node to install. Empty skips setup-node entirely — for a Bun-only repo.'
         type: string
         default: '20'
-      install-cmd:
-        type: string
-        default: 'npm install'
-      check-cmd:
-        description: 'type-check / lint command; skipped when empty'
-        type: string
-        default: ''
-      test-cmd:
-        description: 'test command; skipped when empty'
-        type: string
-        default: ''
-      needs-bun:
-        description: 'install Bun — needed when tests import bun:test, which Node cannot resolve'
+      bun:
+        description: >-
+          Install Bun BEFORE the install step. Before, not after, because a
+          Bun-based repo installs its dependencies with `bun install`, and
+          repos that only need Bun to run tests are unharmed by having it early.
         type: boolean
         default: false
+      install-cmd:
+        description: 'Dependency install. Empty skips it.'
+        type: string
+        default: 'npm install'
+      commands:
+        description: >-
+          Commands to run after install, one per line, in order. A list rather
+          than a fixed lint/typecheck/test triple: repos disagree on how many
+          steps they have and what they are called, and the part that actually
+          repeats is the setup above, not these.
+        type: string
+        default: ''
 
 jobs:
   node:
@@ -48,21 +50,37 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
+        if: inputs.node-version != ''
         with:
           node-version: ${{ inputs.node-version }}
 
-      - name: Install dependencies
-        run: ${{ inputs.install-cmd }}
-
-      - name: Type-check
-        if: inputs.check-cmd != ''
-        run: ${{ inputs.check-cmd }}
-
       - uses: oven-sh/setup-bun@v2
-        if: inputs.needs-bun
+        if: inputs.bun
         with:
           bun-version: latest
 
-      - name: Unit tests
-        if: inputs.test-cmd != ''
-        run: ${{ inputs.test-cmd }}
+      - name: Install dependencies
+        if: inputs.install-cmd != ''
+        run: ${{ inputs.install-cmd }}
+
+      - name: Run
+        if: inputs.commands != ''
+        shell: bash
+        run: |
+          set -uo pipefail
+          status=0
+          while IFS= read -r cmd; do
+            [ -z "${cmd// }" ] && continue
+            case "$cmd" in \#*) continue ;; esac
+            echo "::group::$cmd"
+            if ! bash -c "$cmd"; then
+              echo "::error::failed: $cmd"
+              status=1
+              echo "::endgroup::"
+              break
+            fi
+            echo "::endgroup::"
+          done <<'COMMANDS'
+          ${{ inputs.commands }}
+          COMMANDS
+          exit $status

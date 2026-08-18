@@ -39,26 +39,22 @@ on:
         description: 'extra rustup components, e.g. "clippy, rustfmt"'
         type: string
         default: ''
-      cargo-flags:
-        description: 'flags appended to clippy/test/check'
-        type: string
-        default: '--workspace --all-features'
-      fmt:
-        type: boolean
-        default: true
-      clippy:
-        type: boolean
-        default: true
-      test:
-        type: boolean
-        default: true
-      check:
+      commands:
         description: >-
-          run `cargo check` INSTEAD of test — for crates outside the workspace.
-          Setting this skips the test step, so callers do not have to remember
-          to pass `test: false` as well.
-        type: boolean
-        default: false
+          Commands to run after setup, one per line, in order. This is a list
+          rather than a boolean per command because that is where the previous
+          design broke: a repo needing `cargo clippy` twice with different
+          feature sets could not express it, and adding clippy2/clippy3 inputs
+          turns a workflow into an unreadable config language. What repeats
+          across repos is the SETUP - checkout, toolchain, cache - not which
+          cargo invocations follow it.
+          Each line is echoed as a collapsible log group so a failure is still
+          attributable to one command.
+        type: string
+        default: |
+          cargo fmt --all --check
+          cargo clippy --workspace --all-features -- -D warnings
+          cargo test --workspace --all-features
 
 env:
   CARGO_TERM_COLOR: always
@@ -83,21 +79,25 @@ jobs:
         with:
           workspaces: ${{ inputs.cache-workspaces }}
 
-      - name: Format check
-        if: inputs.fmt
-        run: cargo fmt --all --check
-
-      - name: Clippy
-        if: inputs.clippy
-        run: cargo clippy ${{ inputs.cargo-flags }}
-
-      # `check` means "instead of test", so it suppresses this step. Without the
-      # second clause the two inputs are independent and a caller passing only
-      # `check: true` silently runs both.
-      - name: Test
-        if: inputs.test && !inputs.check
-        run: cargo test ${{ inputs.cargo-flags }}
-
-      - name: Check
-        if: inputs.check
-        run: cargo check ${{ inputs.cargo-flags }}
+      - name: Run
+        shell: bash
+        run: |
+          set -uo pipefail
+          status=0
+          while IFS= read -r cmd; do
+            [ -z "${cmd// }" ] && continue
+            case "$cmd" in \#*) continue ;; esac
+            echo "::group::$cmd"
+            if ! bash -c "$cmd"; then
+              echo "::error::failed: $cmd"
+              status=1
+              echo "::endgroup::"
+              # Stop at the first failure. Later commands usually depend on
+              # earlier ones, and a wall of cascading errors buries the cause.
+              break
+            fi
+            echo "::endgroup::"
+          done <<'COMMANDS'
+          ${{ inputs.commands }}
+          COMMANDS
+          exit $status
