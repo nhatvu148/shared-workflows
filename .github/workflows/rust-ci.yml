@@ -46,6 +46,26 @@ on:
         description: 'extra rustup components, e.g. "clippy, rustfmt"'
         type: string
         default: ''
+      artifact-name:
+        description: 'Artifact name. Upload is skipped unless artifact-path is set too.'
+        type: string
+        default: ''
+      artifact-path:
+        description: 'Path(s) to upload. Empty disables the upload step entirely.'
+        type: string
+        default: ''
+      artifact-when:
+        description: >-
+          When to upload: failure | always | success. Defaults to failure,
+          because the common case is a report you only want when something
+          broke — uploading on every green run costs storage against the same
+          quota GHCR images draw on.
+        type: string
+        default: 'failure'
+      artifact-retention-days:
+        description: 'Days to keep it. 0 uses the repository default.'
+        type: number
+        default: 0
       commands:
         description: >-
           Commands to run after setup, one per line, in order. This is a list
@@ -109,3 +129,20 @@ jobs:
           ${{ inputs.commands }}
           COMMANDS
           exit $status
+
+      # `always()` appears in the expression on purpose: supplying an `if:`
+      # without a status function leaves the implicit success() ANDed on, which
+      # would skip the upload after a failing step - the exact case a report is
+      # wanted for.
+      - name: Upload artifact
+        if: >-
+          ${{ inputs.artifact-path != '' && (
+                (inputs.artifact-when == 'always'  && always())  ||
+                (inputs.artifact-when == 'failure' && failure()) ||
+                (inputs.artifact-when == 'success' && success())
+              ) }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: ${{ inputs.artifact-path }}
+          retention-days: ${{ inputs.artifact-retention-days }}
