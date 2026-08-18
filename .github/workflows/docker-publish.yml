@@ -51,6 +51,16 @@ on:
           the floating tags.
         type: number
         default: 10
+      require-public:
+        description: >-
+          Verify the pushed image is anonymously pullable and FAIL if it is not.
+          GHCR packages created by GITHUB_TOKEN are PRIVATE by default, and a
+          Docker container action pulls `docker://ghcr.io/...` with no
+          credentials — so a private package breaks every downstream consumer
+          with `pull access denied` while the publish job still reports green.
+          Set true for images consumed anonymously (published Actions).
+        type: boolean
+        default: false
 
 jobs:
   publish:
@@ -90,6 +100,31 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Checks exactly what an unauthenticated consumer gets, rather than reading
+      # package metadata: /user/packages needs a PAT scope GITHUB_TOKEN lacks,
+      # and the anonymous pull is the thing that actually has to work.
+      - name: Verify the image is anonymously pullable
+        if: inputs.require-public
+        env:
+          IMAGE: ${{ inputs.image-name != '' && inputs.image-name || github.repository }}
+        run: |
+          set -euo pipefail
+          IMAGE="$(echo "$IMAGE" | tr '[:upper:]' '[:lower:]')"
+          TAG="$(echo '${{ steps.meta.outputs.tags }}' | head -1 | sed 's|.*:||')"
+          tok=$(curl -sS "https://ghcr.io/token?scope=repository:${IMAGE}:pull&service=ghcr.io" \
+                 | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+          code=$(curl -sS -o /dev/null -w '%{http_code}' \
+                   -H "Authorization: Bearer ${tok:-}" \
+                   -H 'Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.docker.distribution.manifest.v2+json' \
+                   "https://ghcr.io/v2/${IMAGE}/manifests/${TAG}")
+          if [ "$code" != "200" ]; then
+            echo "::error::ghcr.io/${IMAGE}:${TAG} is NOT anonymously pullable (HTTP ${code})."
+            echo "::error::GHCR packages are private by default. Make it public:"
+            echo "::error::  github.com/users/<you>/packages/container/<package>/settings → Change visibility → Public"
+            exit 1
+          fi
+          echo "ghcr.io/${IMAGE}:${TAG} is public and pullable."
 
       - name: Prune old image versions
         if: inputs.package-name != ''
