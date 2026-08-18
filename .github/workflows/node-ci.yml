@@ -1,0 +1,62 @@
+name: Reusable — Node CI
+
+# Called by other repos via `uses:`. Does not run on its own.
+# See rust-ci.yml for how the `runner` default works.
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: 'runs-on value, as JSON — either a string or an array'
+        type: string
+        default: '["self-hosted","macOS","ARM64"]'
+      working-directory:
+        type: string
+        default: '.'
+      node-version:
+        type: string
+        default: '20'
+      install-cmd:
+        type: string
+        default: 'npm install'
+      check-cmd:
+        description: 'type-check / lint command; skipped when empty'
+        type: string
+        default: ''
+      test-cmd:
+        description: 'test command; skipped when empty'
+        type: string
+        default: ''
+      needs-bun:
+        description: 'install Bun — needed when tests import bun:test, which Node cannot resolve'
+        type: boolean
+        default: false
+
+jobs:
+  node:
+    runs-on: ${{ fromJSON(inputs.runner) }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      - name: Install dependencies
+        run: ${{ inputs.install-cmd }}
+
+      - name: Type-check
+        if: inputs.check-cmd != ''
+        run: ${{ inputs.check-cmd }}
+
+      - uses: oven-sh/setup-bun@v2
+        if: inputs.needs-bun
+        with:
+          bun-version: latest
+
+      - name: Unit tests
+        if: inputs.test-cmd != ''
+        run: ${{ inputs.test-cmd }}

@@ -1,0 +1,90 @@
+name: Reusable — Rust CI
+
+# Called by other repos via `uses:`. Does not run on its own.
+#
+# The `runner` default below is the single place the whole fleet's runner target
+# is decided. Callers omit the input and inherit it; pass it explicitly only to
+# opt a repo out. To move everything back to GitHub-hosted, change this one
+# default and move the version tag (see README).
+#
+#   self-hosted : '["self-hosted","macOS","ARM64"]'
+#   github      : '"ubuntu-latest"'
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: 'runs-on value, as JSON — either a string or an array'
+        type: string
+        default: '["self-hosted","macOS","ARM64"]'
+      working-directory:
+        description: 'directory the cargo commands run in'
+        type: string
+        default: '.'
+      cache-workspaces:
+        description: 'Swatinem/rust-cache workspaces path'
+        type: string
+        default: '.'
+      components:
+        description: 'extra rustup components, e.g. "clippy, rustfmt"'
+        type: string
+        default: ''
+      cargo-flags:
+        description: 'flags appended to clippy/test/check'
+        type: string
+        default: '--workspace --all-features'
+      fmt:
+        type: boolean
+        default: true
+      clippy:
+        type: boolean
+        default: true
+      test:
+        type: boolean
+        default: true
+      check:
+        description: >-
+          run `cargo check` INSTEAD of test — for crates outside the workspace.
+          Setting this skips the test step, so callers do not have to remember
+          to pass `test: false` as well.
+        type: boolean
+        default: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    runs-on: ${{ fromJSON(inputs.runner) }}
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: ${{ inputs.components }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ inputs.cache-workspaces }}
+
+      - name: Format check
+        if: inputs.fmt
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        if: inputs.clippy
+        run: cargo clippy ${{ inputs.cargo-flags }}
+
+      # `check` means "instead of test", so it suppresses this step. Without the
+      # second clause the two inputs are independent and a caller passing only
+      # `check: true` silently runs both.
+      - name: Test
+        if: inputs.test && !inputs.check
+        run: cargo test ${{ inputs.cargo-flags }}
+
+      - name: Check
+        if: inputs.check
+        run: cargo check ${{ inputs.cargo-flags }}
