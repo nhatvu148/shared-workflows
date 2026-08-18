@@ -20,6 +20,22 @@ on:
         description: 'Node to install. Empty skips setup-node entirely — for a Bun-only repo.'
         type: string
         default: '20'
+      bun-version:
+        description: 'Bun to install when `bun` is true. Pin it if the repo pins it.'
+        type: string
+        default: 'latest'
+      node-cache:
+        description: "setup-node dependency cache: npm | yarn | pnpm. Empty disables it."
+        type: string
+        default: ''
+      env:
+        description: >-
+          Extra environment for the commands, one KEY=VALUE per line. Build steps
+          routinely need configuration (API URLs, public keys) that is not secret
+          but is required, and without this such a repo cannot use this workflow
+          at all. Do NOT put secrets here — inputs are visible in the run log.
+        type: string
+        default: ''
       bun:
         description: >-
           Install Bun BEFORE the install step. Before, not after, because a
@@ -53,11 +69,12 @@ jobs:
         if: inputs.node-version != ''
         with:
           node-version: ${{ inputs.node-version }}
+          cache: ${{ inputs.node-cache }}
 
       - uses: oven-sh/setup-bun@v2
         if: inputs.bun
         with:
-          bun-version: latest
+          bun-version: ${{ inputs.bun-version }}
 
       - name: Install dependencies
         if: inputs.install-cmd != ''
@@ -68,6 +85,13 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
+          # Apply the caller's env before anything runs, so every command sees it.
+          while IFS= read -r kv; do
+            [ -z "${kv// }" ] && continue
+            export "$kv"
+          done <<'ENVVARS'
+          ${{ inputs.env }}
+          ENVVARS
           status=0
           while IFS= read -r cmd; do
             [ -z "${cmd// }" ] && continue

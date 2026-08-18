@@ -31,6 +31,13 @@ on:
         description: 'Swatinem/rust-cache workspaces path'
         type: string
         default: '.'
+      cache-key:
+        description: >-
+          Extra Swatinem/rust-cache key. Set it when two jobs in one repo build
+          the same tree differently — an MSRV job beside a stable one — so their
+          caches do not collide.
+        type: string
+        default: ''
       toolchain:
         description: 'rustup toolchain, e.g. "stable" or an MSRV pin like "1.88.0"'
         type: string
@@ -78,6 +85,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ${{ inputs.cache-workspaces }}
+          key: ${{ inputs.cache-key }}
 
       - name: Run
         shell: bash
